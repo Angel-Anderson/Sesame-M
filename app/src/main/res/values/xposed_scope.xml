@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 旧版 Xposed / LSPatch / NPatch 模块作用域声明 -->
+    <string-array name="xposed_scope">
+        <item>com.eg.android.AlipayGphone</item>
+    </string-array>
+</resources>

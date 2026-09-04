@@ -1,0 +1,58 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preNormalDebugBuild UP-TO-DATE
+> Task :app:mergeNormalDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateNormalDebugBuildConfig
+> Task :app:generateNormalDebugResources UP-TO-DATE
+> Task :app:packageNormalDebugResources UP-TO-DATE
+> Task :app:processNormalDebugNavigationResources UP-TO-DATE
+> Task :app:parseNormalDebugLocalResources UP-TO-DATE
+> Task :app:generateNormalDebugRFile UP-TO-DATE
+> Task :app:javaPreCompileNormalDebug UP-TO-DATE
+> Task :app:generateNormalDebugAssets UP-TO-DATE
+> Task :app:mergeNormalDebugAssets UP-TO-DATE
+> Task :app:compressNormalDebugAssets UP-TO-DATE
+> Task :app:generateNormalDebugGlobalSynthetics UP-TO-DATE
+> Task :app:checkNormalDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarNormalDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexNormalDebug UP-TO-DATE
+> Task :app:mergeLibDexNormalDebug UP-TO-DATE
+> Task :app:checkNormalDebugAarMetadata UP-TO-DATE
+> Task :app:mapNormalDebugSourceSetPaths UP-TO-DATE
+> Task :app:compileNormalDebugNavigationResources UP-TO-DATE
+> Task :app:mergeNormalDebugResources UP-TO-DATE
+> Task :app:createNormalDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksNormalDebug UP-TO-DATE
+> Task :app:processNormalDebugMainManifest UP-TO-DATE
+> Task :app:processNormalDebugManifest UP-TO-DATE
+> Task :app:processNormalDebugManifestForPackage UP-TO-DATE
+> Task :app:processNormalDebugResources UP-TO-DATE
+> Task :app:mergeNormalDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeNormalDebugNativeLibs UP-TO-DATE
+> Task :app:stripNormalDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningNormalDebug UP-TO-DATE
+> Task :app:writeNormalDebugAppMetadata UP-TO-DATE
+> Task :app:writeNormalDebugSigningConfigVersions UP-TO-DATE
+> Task :app:compileNormalDebugKotlin
+w: file:///C:/Users/Administrator/Documents/trae_projects/Sesame-M/app/src/main/java/io/github/aw1y2z/sesame/ui/miuix/MiuixMainActivity.kt:99:13 'lateinit' is unnecessary: definitely initialized in constructors.
+
+> Task :app:compileNormalDebugJavaWithJavac
+> Task :app:processNormalDebugJavaRes UP-TO-DATE
+> Task :app:mergeNormalDebugJavaResource UP-TO-DATE
+> Task :app:dexBuilderNormalDebug
+> Task :app:mergeProjectDexNormalDebug
+> Task :app:packageNormalDebug
+> Task :app:createNormalDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleNormalDebug
+
+[Incubating] Problems report is available at: file:///C:/Users/Administrator/Documents/trae_projects/Sesame-M/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2m 15s
+38 actionable tasks: 6 executed, 32 up-to-date

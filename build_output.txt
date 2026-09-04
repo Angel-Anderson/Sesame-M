@@ -1,0 +1,95 @@
+﻿To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preNormalDebugBuild UP-TO-DATE
+> Task :app:mergeNormalDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateNormalDebugBuildConfig
+> Task :app:generateNormalDebugResources UP-TO-DATE
+> Task :app:packageNormalDebugResources UP-TO-DATE
+> Task :app:processNormalDebugNavigationResources UP-TO-DATE
+> Task :app:parseNormalDebugLocalResources UP-TO-DATE
+> Task :app:generateNormalDebugRFile UP-TO-DATE
+> Task :app:javaPreCompileNormalDebug UP-TO-DATE
+> Task :app:generateNormalDebugAssets UP-TO-DATE
+> Task :app:mergeNormalDebugAssets UP-TO-DATE
+> Task :app:compressNormalDebugAssets UP-TO-DATE
+> Task :app:generateNormalDebugGlobalSynthetics UP-TO-DATE
+> Task :app:checkNormalDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarNormalDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexNormalDebug UP-TO-DATE
+> Task :app:mergeLibDexNormalDebug UP-TO-DATE
+> Task :app:checkNormalDebugAarMetadata UP-TO-DATE
+> Task :app:mapNormalDebugSourceSetPaths UP-TO-DATE
+> Task :app:compileNormalDebugNavigationResources UP-TO-DATE
+> Task :app:mergeNormalDebugResources UP-TO-DATE
+> Task :app:createNormalDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksNormalDebug UP-TO-DATE
+> Task :app:processNormalDebugMainManifest UP-TO-DATE
+> Task :app:processNormalDebugManifest UP-TO-DATE
+> Task :app:processNormalDebugManifestForPackage UP-TO-DATE
+> Task :app:processNormalDebugResources UP-TO-DATE
+> Task :app:mergeNormalDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeNormalDebugNativeLibs UP-TO-DATE
+> Task :app:stripNormalDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningNormalDebug UP-TO-DATE
+> Task :app:writeNormalDebugAppMetadata UP-TO-DATE
+> Task :app:writeNormalDebugSigningConfigVersions UP-TO-DATE
+> Task :app:compileNormalDebugKotlin
+w: file:///C:/Users/Administrator/Documents/trae_projects/Sesame-M/app/src/main/java/io/github/aw1y2z/sesame/ui/miuix/MiuixMainActivity.kt:99:13 'lateinit' is unnecessary: definitely initialized in constructors.
+
+> Task :app:compileNormalDebugJavaWithJavac
+java.exe : C:\Users\Administrator\Documents\trae_projects\Sesame-M\app\src\main\java\io\github\aw1y2z\sesame\model\norm
+al\base\BaseModel.java:61: ����: Not generating getRecordLog(): A method with that name already exists
+At line:15 char:4120
++ ... lyContinue; & "$env:JAVA_HOME\bin\java.exe" -Xmx2048m -cp "gradle\wra ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\Admini... already exists:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    @Getter
+    ^
+C:\Users\Administrator\Documents\trae_projects\Sesame-M\app\src\main\java\io\github\aw1y2z\sesame\hook\ApplicationHook.
+java:1045: ����: �޷��Ӿ�̬�����������÷Ǿ�̬ ���� this
+            broadcastReceiver = new AlipayBroadcastReceiver();
+                                ^
+ע: C:\Users\Administrator\Documents\trae_projects\Sesame-M\app\src\main\java\io\github\aw1y2z\sesame\model\task\antMemb
+er\AntMember.javaʹ�û򸲸����ѹ�ʱ�� API��
+ע: �й���ϸ��Ϣ, ��ʹ�� -Xlint:deprecation ���±��롣
+1 ������
+1 ������
+
+> Task :app:compileNormalDebugJavaWithJavac FAILED
+
+[Incubating] Problems report is available at: file:///C:/Users/Administrator/Documents/trae_projects/Sesame-M/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileNormalDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  ע: C:\Users\Administrator\Documents\trae_projects\Sesame-M\app\src\main\java\io\github\aw1y2z\sesame\model\task\antMe
+mber\AntMember.javaʹ�û򸲸����ѹ�ʱ�� API��
+  C:\Users\Administrator\Documents\trae_projects\Sesame-M\app\src\main\java\io\github\aw1y2z\sesame\model\normal\base\B
+aseModel.java:61: ����: Not generating getRecordLog(): A method with that name already exists
+      @Getter
+      ^
+  ע: �й���ϸ��Ϣ, ��ʹ�� -Xlint:deprecation ���±��롣
+  C:\Users\Administrator\Documents\trae_projects\Sesame-M\app\src\main\java\io\github\aw1y2z\sesame\hook\ApplicationHoo
+k.java:1045: ����: �޷��Ӿ�̬�����������÷Ǿ�̬ ���� this
+              broadcastReceiver = new AlipayBroadcastReceiver();
+                                  ^
+  1 ������
+  1 ������
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 1m 24s
+32 actionable tasks: 3 executed, 29 up-to-date

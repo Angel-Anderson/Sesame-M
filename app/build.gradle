@@ -1,0 +1,123 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+
+android {
+    def version = project.getProperties().get("version")
+    if (version == null || "unspecified".equalsIgnoreCase(version)) {
+        // 默认版本号；正式发布时由 CI 通过 -Pversion=<tag> 覆盖
+        version = "1.0.0"
+    }
+    project.ext.appVersion = version
+    def gitCommitHash = "unknown"
+    def gitBranchName = "unknown"
+    def gitCommitCount = 1
+    try {
+        gitCommitHash = 'git rev-parse --short HEAD'.execute().text.trim()
+        gitBranchName = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+        gitCommitCount = "git rev-list --count HEAD".execute().text.trim().toInteger()
+    } catch (Exception ignored) { }
+    def buildTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone("Asia/Shanghai"))
+
+    compileSdk 37
+    namespace 'io.github.aw1y2z.sesame'
+    defaultConfig {
+        applicationId "io.github.aw1y2z.sesame"
+        minSdk 26
+        //noinspection ExpiredTargetSdkVersion
+        targetSdk 34
+        versionCode gitCommitCount
+        versionName version
+
+        buildConfigField "String", "GIT_COMMIT_HASH", "\"${gitCommitHash}\""
+        buildConfigField "String", "GIT_BRANCH_NAME", "\"${gitBranchName}\""
+        buildConfigField "String", "BUILD_TIME", "\"${buildTime}\""
+    }
+    buildFeatures {
+        buildConfig = true // 显式启用 BuildConfig
+        compose = true
+    }
+    ext {
+        applicationName = "Sesame-M"
+        applicationType = "Normal"
+    }
+    flavorDimensions.add("default")
+    productFlavors {
+        normal {
+            dimension "default"
+            ext.applicationType = "Normal"
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    // 按 ABI 拆分 APK：仅发布 arm 主流架构，保留 universal 全架构兜底包
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a"
+            universalApk true
+        }
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+    packaging {
+        resources {
+            merges += "META-INF/xposed/**"
+        }
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType('release')) { variant ->
+        variant.outputs.forEach { output ->
+            // 按 ABI 区分产物名：arm64-v8a / armeabi-v7a；无 ABI filter 的为 universal 兜底包
+            String abiTag = "-universal"
+            output.getFilters().forEach { f ->
+                if (f.getFilterType().name() == 'ABI') {
+                    abiTag = "-" + f.getIdentifier()
+                }
+            }
+            output.outputFileName.set("Sesame-M-Normal${abiTag}-${project.appVersion}.apk")
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    compileOnly 'io.github.libxposed:api:102.0.0'
+    implementation 'io.github.libxposed:service:102.0.0'
+    // 旧版 Xposed API：供 LSPatch / NPatch 免 root 路径（LegacyXposedEntry / LegacyXposedBridgeHookEngine）使用
+    compileOnly 'de.robv.android.xposed:api:82'
+    compileOnly group: 'org.projectlombok', name: 'lombok', version: '1.18.32'
+    annotationProcessor group: 'org.projectlombok', name: 'lombok', version: '1.18.32'
+    implementation 'com.elvishew:xlog:1.11.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    implementation group: 'com.fasterxml.jackson.core', name: 'jackson-core', version: '2.18.2'
+    implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.18.2'
+    implementation group: 'com.fasterxml.jackson.core', name: 'jackson-annotations', version: '2.18.2'
+
+    // NanoHTTPD 核心依赖（最新稳定版）
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+
+    // Kotlin + Compose（miuix UI 重构基础）
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.4.0"
+    implementation "androidx.activity:activity-compose:1.9.3"
+    implementation "top.yukonga.miuix.kmp:miuix-ui:0.9.3"
+    implementation "top.yukonga.miuix.kmp:miuix-preference:0.9.3"
+    implementation "androidx.compose.material:material-icons-extended:1.7.6"
+}
