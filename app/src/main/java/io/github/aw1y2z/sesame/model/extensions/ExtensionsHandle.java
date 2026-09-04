@@ -108,9 +108,14 @@ public class ExtensionsHandle {
                 stats.put("friends", friendsStats);
             }
             Map<String, Long> weekCollectMap = new LinkedHashMap<>();
+            List<String> excludeKeywords = loadExcludeKeywords();
             for (Map.Entry<String, UserEntity> entry : UserIdMap.getUserMap().entrySet()) {
                 String userId = entry.getKey();
                 if (userId == null || userId.isEmpty()) continue;
+                // 名字命中排除关键词的好友:不抓取、不计入明细与汇总
+                if (isNameExcluded(getDisplayName(userId), excludeKeywords)) {
+                    continue;
+                }
                 long weekCollected = fetchWeekCollectEnergy(userId);
                 if (weekCollected >= 0) {
                     weekCollectMap.put(userId, weekCollected);
@@ -142,6 +147,9 @@ public class ExtensionsHandle {
                 long totalEnergy = f.optLong("totalEnergy", 0);
                 info.put("weekEnergy", weekEnergy);
                 info.put("totalEnergy", totalEnergy);
+                // 月/年收取随明细输出,UI 端排除过滤后可即时重算全部汇总
+                info.put("monthEnergy", f.optLong("monthEnergy", 0));
+                info.put("yearEnergy", f.optLong("yearEnergy", 0));
                 info.put("firstSeen", f.optLong("firstSeen", now));
                 weekSum += weekEnergy;
                 totalSum += totalEnergy;
@@ -363,6 +371,46 @@ public class ExtensionsHandle {
         int daysSinceMonday = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7;
         cal.add(Calendar.DAY_OF_MONTH, -daysSinceMonday);
         return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.getTime());
+    }
+
+    /**
+     * 读取好友排除关键词文件 friendStatsExclude.txt(逗号/顿号/换行分隔),
+     * 好友名字包含任一关键词则不计入明细与汇总。
+     */
+    private static List<String> loadExcludeKeywords() {
+        List<String> keywords = new ArrayList<>();
+        try {
+            File file = new File(FileUtil.MAIN_DIRECTORY_FILE, "friendStatsExclude.txt");
+            if (file.exists()) {
+                String content = FileUtil.readFromFile(file);
+                if (!StringUtil.isEmpty(content)) {
+                    for (String kw : content.split("[\\s,，、\\n\\r]+")) {
+                        kw = kw.trim();
+                        if (!kw.isEmpty()) {
+                            keywords.add(kw.toLowerCase());
+                        }
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.i(TAG, "loadExcludeKeywords err:");
+            Log.printStackTrace(TAG, t);
+        }
+        return keywords;
+    }
+
+    /** 名字是否命中排除关键词(不区分大小写)。 */
+    private static boolean isNameExcluded(String name, List<String> excludeKeywords) {
+        if (name == null || name.isEmpty() || excludeKeywords.isEmpty()) {
+            return false;
+        }
+        String lowerName = name.toLowerCase();
+        for (String keyword : excludeKeywords) {
+            if (lowerName.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 获取好友展示名:备注名优先,其次 showName,最后兜底 userId。 */

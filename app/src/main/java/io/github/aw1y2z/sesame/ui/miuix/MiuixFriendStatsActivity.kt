@@ -40,12 +40,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import io.github.aw1y2z.sesame.util.FileUtil
+import io.github.aw1y2z.sesame.util.ToastUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
@@ -82,6 +85,7 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
     var rankingData by remember { mutableStateOf(loadRankingData()) }
     var isRefreshing by remember { mutableStateOf(false) }
     var refreshBaseTime by remember { mutableStateOf(0L) }
+    var showExcludeDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 手动刷新轮询:逐个好友抓取耗时较长,轮询文件 updateTime 变化直至完成
@@ -108,6 +112,13 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
         }
     }
 
+    // 排除关键词(空格分隔);保存后立即过滤已加载数据,无需重新抓取
+    var excludeKeywords by remember { mutableStateOf(parseExcludeKeywords(loadExcludeKeywordsText())) }
+    // 按关键词过滤后的展示数据(明细列表与全部汇总即时生效)
+    val displayData = remember(rankingData, excludeKeywords) {
+        applyExclusion(rankingData, excludeKeywords)
+    }
+
     Scaffold(
         topBar = {
             LogTopBar(
@@ -125,19 +136,34 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
             // 能量统计汇总卡片固定在列表外部,保证列表内全部为等高明细行,
             // 使滑块的索引进度与滚动进度严格线性
             Box(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                StatsSummaryCard(rankingData)
+                StatsSummaryCard(displayData)
             }
 
-            // 好友收取明细标题 + 手动刷新按钮(固定顶部,不随列表滚动)
+            // 好友收取明细标题 + 排除/手动刷新按钮(固定顶部,不随列表滚动)
             CollectDetailHeader(
-                rankingData = rankingData,
+                rankingData = displayData,
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     refreshBaseTime = rankingData?.updateTime ?: 0L
                     activity.sendRefreshBroadcast()
                     isRefreshing = true
-                }
+                },
+                onExclude = { showExcludeDialog = true }
             )
+
+            if (showExcludeDialog) {
+                ExcludeKeywordsDialog(
+                    initial = loadExcludeKeywordsText(),
+                    onSave = {
+                        saveExcludeKeywordsText(it)
+                        // 关键词立即作用于已加载的列表与汇总,无需重新抓取
+                        excludeKeywords = parseExcludeKeywords(it)
+                        ToastUtil.show(activity, "已保存并生效")
+                        showExcludeDialog = false
+                    },
+                    onDismiss = { showExcludeDialog = false }
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -152,8 +178,8 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)
                 ) {
-                    // 好友收取明细列表(PK数据,已按周收→总收→开始统计时间排序)
-                    val friendList = rankingData?.friends ?: emptyList()
+                    // 好友收取明细列表(PK数据,已按周收→总收→开始统计时间排序,应用排除过滤)
+                    val friendList = displayData?.friends ?: emptyList()
                     if (friendList.isEmpty()) {
                         item {
                             Box(
@@ -163,7 +189,7 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = if (isRefreshing) "(刷新中,请稍候...)" else "(暂无数据,等待同步)",
+                                    text = if (isRefreshing) "(刷新中,请稍候...)" else "(暂无数据,等待同步或已被全部排除)",
                                     fontSize = 14.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
@@ -214,6 +240,8 @@ private fun loadRankingData(): RankingData? {
                         name = f.optString("name", f.optString("userId")),
                         weekEnergy = f.optLong("weekEnergy", 0),
                         totalEnergy = f.optLong("totalEnergy", 0),
+                        monthEnergy = f.optLong("monthEnergy", 0),
+                        yearEnergy = f.optLong("yearEnergy", 0),
                         firstSeenText = if (firstSeen > 0) {
                             "（开始统计时间:" + dateFormat.format(Date(firstSeen)) + "）"
                         } else ""
@@ -228,8 +256,6 @@ private fun loadRankingData(): RankingData? {
             yearSum = jo.optLong("yearSum", 0),
             totalSum = jo.optLong("totalSum", 0),
             updateTime = jo.optLong("updateTime", 0),
-            // 旧版模块代码写入的文件没有月/年汇总字段,用于提示支付宝内模块需要更新
-            hasMonthYearSums = jo.has("monthSum") && jo.has("yearSum"),
             friends = friends
         )
     } catch (e: Exception) {
@@ -245,7 +271,6 @@ data class RankingData(
     val yearSum: Long,
     val totalSum: Long,
     val updateTime: Long,
-    val hasMonthYearSums: Boolean,
     val friends: List<FriendRankInfo>
 )
 
@@ -254,15 +279,18 @@ data class FriendRankInfo(
     val name: String,
     val weekEnergy: Long,
     val totalEnergy: Long,
+    val monthEnergy: Long,
+    val yearEnergy: Long,
     val firstSeenText: String
 )
 
-/** 好友收取明细标题:手动刷新按钮 + 本周/累计汇总 + 最近同步时间。 */
+/** 好友收取明细标题:排除/手动刷新按钮 + 本周/累计汇总 + 最近同步时间。 */
 @Composable
 private fun CollectDetailHeader(
     rankingData: RankingData?,
     isRefreshing: Boolean,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onExclude: () -> Unit
 ) {
     Column(
         Modifier
@@ -280,10 +308,19 @@ private fun CollectDetailHeader(
                 fontWeight = FontWeight.Medium,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
-            TextButton(
-                text = if (isRefreshing) "刷新中..." else "刷新数据",
-                onClick = { if (!isRefreshing) onRefresh() }
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    text = "排除",
+                    onClick = onExclude
+                )
+                TextButton(
+                    text = if (isRefreshing) "刷新中..." else "刷新数据",
+                    onClick = { if (!isRefreshing) onRefresh() }
+                )
+            }
         }
         if (rankingData == null) {
             Text(
@@ -302,6 +339,94 @@ private fun CollectDetailHeader(
                 fontSize = 11.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
+        }
+    }
+}
+
+/** 排除关键词文件:名字包含任一关键词的好友不计入明细与汇总(UI即时过滤+模块同步时过滤)。 */
+private val excludeKeywordsFile by lazy { File(FileUtil.MAIN_DIRECTORY_FILE, "friendStatsExclude.txt") }
+
+/** 读取排除关键词原文(空格分隔)。 */
+private fun loadExcludeKeywordsText(): String {
+    return if (excludeKeywordsFile.exists()) FileUtil.readFromFile(excludeKeywordsFile) else ""
+}
+
+/** 保存排除关键词原文。 */
+private fun saveExcludeKeywordsText(text: String) {
+    FileUtil.write2File(text, excludeKeywordsFile)
+}
+
+/** 解析排除关键词原文:空格分隔(兼容逗号/顿号),不区分大小写。 */
+private fun parseExcludeKeywords(text: String): List<String> {
+    return text.split(Regex("[\\s,，、]+"))
+        .map { it.trim().lowercase() }
+        .filter { it.isNotEmpty() }
+}
+
+/**
+ * 按关键词过滤明细数据并重算全部汇总,保存关键词后列表立即生效,无需重新抓取。
+ */
+private fun applyExclusion(data: RankingData?, keywords: List<String>): RankingData? {
+    if (data == null || keywords.isEmpty()) return data
+    val filtered = data.friends.filter { friend ->
+        val lower = friend.name.lowercase()
+        keywords.none { lower.contains(it) }
+    }
+    return data.copy(
+        total = filtered.size,
+        weekSum = filtered.sumOf { it.weekEnergy },
+        monthSum = filtered.sumOf { it.monthEnergy },
+        yearSum = filtered.sumOf { it.yearEnergy },
+        totalSum = filtered.sumOf { it.totalEnergy },
+        friends = filtered
+    )
+}
+
+/** 排除关键词编辑对话框:多个关键词用空格分隔,保存后列表与汇总立即生效。 */
+@Composable
+private fun ExcludeKeywordsDialog(
+    initial: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MiuixTheme.colorScheme.surface)
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "排除好友",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MiuixTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "好友名字包含任一关键词即不计入明细与汇总,多个关键词用空格分隔,保存后立即生效",
+                fontSize = 11.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Spacer(Modifier.height(10.dp))
+            TextField(
+                value = text,
+                onValueChange = { text = it },
+                label = "关键词,如: 代拍 机器人",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(text = "取消", onClick = onDismiss)
+                Spacer(Modifier.width(12.dp))
+                TextButton(text = "保存", onClick = { onSave(text) })
+            }
         }
     }
 }
@@ -457,16 +582,6 @@ private fun StatsSummaryCard(rankingData: RankingData?) {
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
             return@Column
-        }
-
-        if (!rankingData.hasMonthYearSums) {
-            Text(
-                text = "月/年汇总数据需要支付宝内的模块同步生成。当前支付宝内运行的仍是旧版模块:" +
-                        "LSPosed 用户请强停支付宝后重新打开;LSPatch/NPatch 用户请用新模块重新修补支付宝,然后再点\"刷新数据\"。",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Spacer(Modifier.height(8.dp))
         }
 
         EnergyRow("本年", rankingData.yearSum)
