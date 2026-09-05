@@ -356,7 +356,7 @@ public class ApplicationHook {
                                     }
                                     TaskCommon.update();
                                     ModelTask.startAllTask(false);
-                                    // 好友收取明细数据同步:每4小时一次,周日23点后强制一次
+                                    // 好友收取明细数据同步:周一至周六每天一次,周日每6小时一次且23点后强制一次
                                     ExtensionsHandle.trySyncFriendStats();
                                     lastExecTime = System.currentTimeMillis();
 
@@ -715,6 +715,12 @@ public class ApplicationHook {
     }
 
     private static void execHandler() {
+        // 好友收取明细:启动按手机时间运行的周日23点强制同步调度器(幂等,仅初始化一次)
+        try {
+            io.github.aw1y2z.sesame.model.extensions.ExtensionsHandle.initFriendStatsScheduler();
+        } catch (Throwable t) {
+            Log.printStackTrace(t);
+        }
         mainTask.startTask(false);
     }
 

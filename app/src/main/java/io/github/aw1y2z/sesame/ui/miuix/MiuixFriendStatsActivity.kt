@@ -119,6 +119,17 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
         applyExclusion(rankingData, excludeKeywords)
     }
 
+    // 进页面时若数据已过期(工作日超24h/周日超6h/从未同步),自动静默补刷一次;
+    // 周日23点强制同步由模块内定时调度器按手机时间准点执行,不依赖页面
+    LaunchedEffect(Unit) {
+        val lastSync = rankingData?.updateTime ?: 0L
+        if (isFriendStatsDue(lastSync)) {
+            refreshBaseTime = lastSync
+            activity.sendRefreshBroadcast()
+            isRefreshing = true
+        }
+    }
+
     Scaffold(
         topBar = {
             LogTopBar(
@@ -217,6 +228,16 @@ fun FriendStatsScreen(activity: MiuixFriendStatsActivity) {
             }
         }
     }
+}
+
+/** 判断好友收取明细数据是否已过期:周一至周六超24h,周日超6h;从未同步也算过期。周日23点强制同步由模块定时调度器负责。 */
+private fun isFriendStatsDue(lastSync: Long): Boolean {
+    val now = System.currentTimeMillis()
+    if (lastSync <= 0L) return true
+    val cal = java.util.Calendar.getInstance()
+    val sunday = cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.SUNDAY
+    val interval = if (sunday) 6 * 60 * 60 * 1000L else 24 * 60 * 60 * 1000L
+    return now - lastSync >= interval
 }
 
 /** 读取 friendRanking.json,解析好友收取明细数据(周收/总收/开始统计时间)。 */

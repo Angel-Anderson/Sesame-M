@@ -361,6 +361,119 @@ public class ExtensionsHandle {
         return now >= sunday2300 && lastSync < sunday2300;
     }
 
+    // ===== 周日23点按手机时间准点强制同步的定时调度器 =====
+    private static android.os.HandlerThread schedulerThread;
+    private static android.os.Handler schedulerHandler;
+    private static Runnable sundayForceTask;
+
+    /**
+     * 初始化周日23点定时强制同步调度器(按手机系统时间),由模块入口调用一次。
+     * 不依赖主任务循环或打开统计页:支付宝进程存活期间,到周日23:00准点自动触发;
+     * 触发完成后自动排程下一个周日23:00。
+     */
+    public static synchronized void initFriendStatsScheduler() {
+        try {
+            if (schedulerHandler == null) {
+                schedulerThread = new android.os.HandlerThread("friend-stats-scheduler");
+                schedulerThread.start();
+                schedulerHandler = new android.os.Handler(schedulerThread.getLooper());
+            }
+            scheduleSundayForceSync();
+        } catch (Throwable t) {
+            Log.i(TAG, "initFriendStatsScheduler err:");
+            Log.printStackTrace(TAG, t);
+        }
+    }
+
+    /** 排程下一次周日23:00(若今天是周日且未到23点则为今天,否则为下周日)的强制同步。 */
+    private static void scheduleSundayForceSync() {
+        try {
+            if (schedulerHandler == null) return;
+            if (sundayForceTask != null) {
+                schedulerHandler.removeCallbacks(sundayForceTask);
+            }
+            long now = System.currentTimeMillis();
+            long triggerAt;
+            // 兜底:现在已是周日23点后(如模块/进程在23点后才启动)且本周尚未强制同步 → 立即补执行
+            Calendar nowCal = Calendar.getInstance();
+            nowCal.set(Calendar.HOUR_OF_DAY, 23);
+            nowCal.set(Calendar.MINUTE, 0);
+            nowCal.set(Calendar.SECOND, 0);
+            nowCal.set(Calendar.MILLISECOND, 0);
+            long lastSyncTs = loadCollectStats().optLong("updateTime", 0);
+            if (nowCal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY
+                    && now >= nowCal.getTimeInMillis()
+                    && lastSyncTs < nowCal.getTimeInMillis()) {
+                triggerAt = now;
+                Log.record("好友收取明细:当前为周日23点后且本周未同步,立即补执行强制同步");
+            } else {
+                triggerAt = nextSunday2300();
+            }
+            final long delay = triggerAt - System.currentTimeMillis();
+            sundayForceTask = new Runnable() {
+                @Override
+                public void run() {
+                    boolean started = false;
+                    try {
+                        long lastSync = loadCollectStats().optLong("updateTime", 0);
+                        long now = System.currentTimeMillis();
+                        // 已有23点之后的成功同步(其他途径完成) → 本时段任务完成,排程下周
+                        if (!isSundayAfter23(lastSync, now) && lastSync >= triggerAt) {
+                            scheduleSundayForceSync();
+                            return;
+                        }
+                        Log.record("好友收取明细:周日23点定时触发,开始强制同步");
+                        started = friendStatsSyncing.compareAndSet(false, true);
+                        if (started) {
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        queryFriendRanking();
+                                    } finally {
+                                        friendStatsSyncing.set(false);
+                                        scheduleSundayForceSync();
+                                    }
+                                }
+                            }, "friend-stats-sync").start();
+                        }
+                    } catch (Throwable t) {
+                        Log.i(TAG, "sundayForceTask err:");
+                        Log.printStackTrace(TAG, t);
+                    } finally {
+                        // 若已有同步在进行(未启动新线程),1分钟后重试本时段强制同步,确保完成
+                        if (!started) {
+                            schedulerHandler.postDelayed(this, 60 * 1000L);
+                        }
+                    }
+                }
+            };
+            schedulerHandler.postDelayed(sundayForceTask, Math.max(delay, 0));
+            Log.record("好友收取明细:已排程周日23点强制同步,触发时间 "
+                    + new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(new java.util.Date(triggerAt)));
+        } catch (Throwable t) {
+            Log.i(TAG, "scheduleSundayForceSync err:");
+            Log.printStackTrace(TAG, t);
+        }
+    }
+
+    /** 计算下一个周日23:00的时间戳:今天周日且现在早于23点 → 今天23点;否则顺延至下周日23点。 */
+    private static long nextSunday2300() {
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 23);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        // 今天不是周日,或今天周日但已过23点 → 顺延到下一个周日
+        if (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY
+                || cal.getTimeInMillis() <= System.currentTimeMillis()) {
+            do {
+                cal.add(Calendar.DAY_OF_MONTH, 1);
+            } while (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY);
+        }
+        return cal.getTimeInMillis();
+    }
+
     /** 获取当前周标识(本周周一0点的日期,用于周一清零判断)。 */
     private static String getCurrentWeekKey() {
         Calendar cal = Calendar.getInstance();
