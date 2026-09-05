@@ -55,11 +55,10 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.roundToInt
 
 /**
  * 好友统计二级页:能量统计 + 好友收取明细(周收/总收,PK数据)。
- * 数据由支付宝进程每4小时自动同步一次(周日23点后强制同步),本页支持手动刷新。
+ * 数据由支付宝进程自动同步:周一至周六每天一次,周日每6小时一次且23点按手机时间准点强制同步;本页支持手动刷新。
  */
 class MiuixFriendStatsActivity : MiuixBaseActivity() {
 
@@ -491,8 +490,10 @@ private fun FriendDetailItem(no: Int, friend: FriendRankInfo) {
 }
 
 /**
- * 垂直快速翻页滑块:采用绝对映射——手指在轨道上的绝对位置直接换算目标项索引,
- * 不依赖滚动状态增量,彻底消除连续手势事件读到过期位置导致的进度滞后。
+ * 垂直快速翻页滑块。
+ * 拖拽中:滑块位置直接按手指位置渲染(瞬时跟手,不等待列表布局);
+ * 列表滚动协程逐次取消旧任务只保留最新目标,避免事件堆积导致卡顿;
+ * 松手后:滑块恢复按列表真实滚动位置渲染。
  * 手指拖到轨道底部 = scrollToItem(最后一项) = 列表真正到底。
  * 轨道底部留出导航栏/圆角区域,无需触到屏幕底边即可拖到滑块底部。
  */
@@ -506,55 +507,89 @@ private fun VerticalScrollSlider(
     val density = LocalDensity.current
     val thumbHeightPx = with(density) { 48.dp.toPx() }
 
+    // 拖拽状态:dragFraction 为手指在轨道上的进度,拖拽中用它直接渲染滑块(跟手)
+    var dragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf(0f) }
+    // 列表滚动任务:每次只保留最新一个,旧任务取消,防止协程堆积
+    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     val layoutInfo = listState.layoutInfo
     val totalItems = layoutInfo.totalItemsCount
     // 列表内全部为等高明细行:实际可达的最大 firstVisibleItemIndex = 总项数 - 可见项数
     val denom = (totalItems - layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)
-    // 显示进度带小数部分(首项内偏移/首项高度),手动滚动时滑块连续移动
+    // 非拖拽时:显示进度带小数部分(首项内偏移/首项高度),手动滚动列表时滑块连续移动
     val firstItem = layoutInfo.visibleItemsInfo.firstOrNull()
-    val rawIndex = if (firstItem != null && firstItem.size > 0) {
-        listState.firstVisibleItemIndex +
-                listState.firstVisibleItemScrollOffset.toFloat() / firstItem.size
+    val itemHeight = firstItem?.size?.toFloat() ?: 0f
+    val listFraction = if (firstItem != null && itemHeight > 0f) {
+        ((listState.firstVisibleItemIndex +
+                listState.firstVisibleItemScrollOffset.toFloat() / itemHeight) / denom)
+            .coerceIn(0f, 1f)
     } else {
-        listState.firstVisibleItemIndex.toFloat()
+        0f
     }
-    val progress = (rawIndex.coerceIn(0f, denom.toFloat()) / denom).coerceIn(0f, 1f)
+
     val maxThumbOffset = (trackHeight - thumbHeightPx).coerceAtLeast(0f)
-    val thumbOffset = progress * maxThumbOffset
+    // 拖拽中跟手渲染,非拖拽跟随列表位置
+    val thumbOffset = (if (dragging) dragFraction else listFraction) * maxThumbOffset
+
+    // 按进度滚动列表:小数部分换算为行内偏移,定位更平滑;旧滚动任务取消
+    fun scrollToFraction(frac: Float) {
+        val curLayout = listState.layoutInfo
+        val curTotal = curLayout.totalItemsCount
+        if (curTotal <= 0) return
+        val curDenom = (curTotal - curLayout.visibleItemsInfo.size).coerceAtLeast(1)
+        scrollJob?.cancel()
+        scrollJob = scope.launch {
+            if (frac >= 0.999f) {
+                // 滑块到底:直接定位列表末尾,scrollToItem 自动钳制到真实底部
+                listState.scrollToItem(curTotal - 1)
+            } else {
+                val exact = frac.coerceIn(0f, 1f) * curDenom
+                val index = exact.toInt().coerceIn(0, curDenom)
+                val h = curLayout.visibleItemsInfo.firstOrNull()?.size ?: 0
+                val innerOffset = if (h > 0) {
+                    ((exact - index) * h).toInt().coerceIn(0, h - 1)
+                } else 0
+                listState.scrollToItem(index, innerOffset)
+            }
+        }
+    }
 
     Box(
         modifier = modifier
-            .width(28.dp)
+            .width(40.dp)
             .fillMaxHeight()
             // 底部留出圆角/导航栏区域,顶部留少量边距,拖到底无需触屏幕边缘
             .padding(top = 8.dp, bottom = 88.dp, end = 4.dp)
             .onGloballyPositioned { trackHeight = it.size.height.toFloat() },
         contentAlignment = Alignment.TopEnd
     ) {
-        // 拖拽响应区域:手指绝对位置 → 目标项索引
+        // 拖拽响应区域(加宽到40dp更易触摸):手指绝对位置 → 进度
         Box(
             Modifier
-                .width(28.dp)
+                .width(40.dp)
                 .fillMaxHeight()
                 .pointerInput(Unit) {
-                    detectDragGestures { change, _ ->
-                        change.consume()
-                        val curLayout = listState.layoutInfo
-                        val curTotal = curLayout.totalItemsCount
-                        if (curTotal <= 0) return@detectDragGestures
-                        val curMaxThumb = (trackHeight - thumbHeightPx).coerceAtLeast(1f)
-                        val curDenom = (curTotal - curLayout.visibleItemsInfo.size).coerceAtLeast(1)
-                        // 手指中心点在轨道上的绝对位置 → 目标进度(0~1)
-                        val frac = ((change.position.y - thumbHeightPx / 2f)
-                            .coerceIn(0f, curMaxThumb)) / curMaxThumb
-                        val targetIndex = if (frac >= 0.999f) {
-                            // 滑块到底:直接定位列表末尾,scrollToItem 自动钳制到真实底部
-                            curTotal - 1
-                        } else {
-                            (frac * curDenom).roundToInt().coerceIn(0, curDenom)
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            dragging = true
+                            val max = (trackHeight - thumbHeightPx).coerceAtLeast(1f)
+                            val frac = ((offset.y - thumbHeightPx / 2f)
+                                .coerceIn(0f, max)) / max
+                            dragFraction = frac
+                            scrollToFraction(frac)
+                        },
+                        onDragEnd = { dragging = false },
+                        onDragCancel = { dragging = false },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val max = (trackHeight - thumbHeightPx).coerceAtLeast(1f)
+                            val frac = ((change.position.y - thumbHeightPx / 2f)
+                                .coerceIn(0f, max)) / max
+                            dragFraction = frac
+                            scrollToFraction(frac)
                         }
-                        scope.launch { listState.scrollToItem(targetIndex) }
-                    }
+                    )
                 }
         )
         // 轨道(右移8dp,与20dp宽的滑块水平居中对齐)
@@ -573,7 +608,7 @@ private fun VerticalScrollSlider(
                 .width(20.dp)
                 .height(48.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.6f))
+                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.7f))
         )
     }
 }
