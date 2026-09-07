@@ -248,11 +248,12 @@ public class ExtensionsHandle {
 
     /**
      * 将单个好友本周收取数据合并进累计统计。
-     * 总收/月收/年收均独立增量累加,周翻转时按月份/年份变化清零:
-     * - totalEnergy:历史累计,只加新增部分
-     * - monthEnergy:本月累计,周标识月份变化时清零
-     * - yearEnergy:本年累计,周标识年份变化时清零
-     * 不依赖 weeks 历史推导,避免迁移时数据丢失导致月/年永久归零。
+     * 总收/月收/年收均独立增量累加:
+     * - totalEnergy:历史累计,只加新增部分;跨周时把上周最终值作为「上周完整收取」补加
+     * - monthEnergy:本月累计,周翻转且月份变化时清零;跨周时把上周最终值补加到旧月份(如已清零则仅累加本周新增)
+     * - yearEnergy:本年累计,周翻转且年份变化时清零;跨周时把上周最终值补加
+     * 跨周补加机制:如果上次同步时记录的 weekEnergy 还没被算进总收(比如周日23点强制同步没运行),
+     * 周一发现跨周时先把上周值作为「上周完整收取」补加到总收/年收,确保上周数据不丢失。
      */
     private static void mergeFriendWeekEnergy(JSONObject friendsStats, String userId, long weekCollected) {
         try {
@@ -269,6 +270,7 @@ public class ExtensionsHandle {
             }
             String storedWeekKey = f.optString("weekKey", "");
             long prevWeek = f.optLong("weekEnergy", 0);
+            boolean hasLastSyncFlag = f.optBoolean("lastSynced", false);
             // 周翻转:存储的 weekKey 与当前不同 → 新的一周
             boolean weekFlipped = !storedWeekKey.isEmpty() && !storedWeekKey.equals(currentWeekKey);
             // 月翻转:存储的周标识月份与当前不同 → 新的一月
@@ -278,23 +280,51 @@ public class ExtensionsHandle {
             String storedYear = storedWeekKey.length() >= 4 ? storedWeekKey.substring(0, 4) : "";
             boolean yearFlipped = weekFlipped && !storedYear.equals(currentYearKey);
 
-            // 新增部分 = 本周值 - 上次同步的本周值(同周);周翻转时上次本周值=0
-            long newPortion = weekFlipped ? Math.max(weekCollected, 0)
-                    : Math.max(0, weekCollected - prevWeek);
-            // 周翻转时,月/年按翻转情况清零(本月/本年从上周结束点重新开始)
+            long addToTotal = 0;    // 本次要累加到 totalEnergy 的量
+            long addToMonth = 0;    // 本次要累加到 monthEnergy 的量(本月)
+            long addToYear = 0;    // 本次要累加到 yearEnergy 的量(本年)
+
+            if (weekFlipped) {
+                // 跨周:上周结束值(prevWeek)如果还没被算进总收(上次同步时已算过则跳过)
+                // lastSynced 标记:上次同步时 prevWeek 是否已累加进 totalEnergy
+                if (!hasLastSyncFlag && prevWeek > 0) {
+                    // 上周结束时未同步过,把上周最终值作为完整一周补加到总收/年收
+                    // 月收:若跨月,上周属旧月份,本月从0开始(不补加到本月);若同月,补加到本月
+                    addToTotal += prevWeek;
+                    addToYear += prevWeek;
+                    if (!monthFlipped) {
+                        addToMonth += prevWeek;
+                    }
+                    Log.record("好友收取明细:跨周补加 " + userId + " 上周"
+                            + storedWeekKey + "=" + prevWeek + "g 到累计/年收"
+                            + (monthFlipped ? "(跨月,月收不补加)" : "(同月,月收补加)"));
+                }
+                // 本周新增:周一服务端清零后本周值(可能为0或本周已收的部分)
+                addToTotal += Math.max(weekCollected, 0);
+                addToMonth += Math.max(weekCollected, 0);
+                addToYear += Math.max(weekCollected, 0);
+            } else {
+                // 同周:新增部分 = 本周值 - 上次同步的本周值
+                long newPortion = Math.max(0, weekCollected - prevWeek);
+                addToTotal += newPortion;
+                addToMonth += newPortion;
+                addToYear += newPortion;
+            }
+            // 周翻转时,月/年按翻转情况清零(新月份/新年份从0开始)
             if (monthFlipped) {
                 f.put("monthEnergy", 0);
             }
             if (yearFlipped) {
                 f.put("yearEnergy", 0);
             }
-            // 三项独立累加新增部分
-            f.put("totalEnergy", f.optLong("totalEnergy", 0) + newPortion);
-            f.put("monthEnergy", f.optLong("monthEnergy", 0) + newPortion);
-            f.put("yearEnergy", f.optLong("yearEnergy", 0) + newPortion);
-            // 更新本周标识与值
+            // 三项独立累加
+            f.put("totalEnergy", f.optLong("totalEnergy", 0) + addToTotal);
+            f.put("monthEnergy", f.optLong("monthEnergy", 0) + addToMonth);
+            f.put("yearEnergy", f.optLong("yearEnergy", 0) + addToYear);
+            // 更新本周标识与值,标记本周值已累加进 totalEnergy(避免下次同步重复算)
             f.put("weekKey", currentWeekKey);
             f.put("weekEnergy", Math.max(weekCollected, 0));
+            f.put("lastSynced", true);
             friendsStats.put(userId, f);
         } catch (Throwable t) {
             Log.i(TAG, "mergeFriendWeekEnergy err:");
