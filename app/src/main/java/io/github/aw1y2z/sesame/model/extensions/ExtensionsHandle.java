@@ -135,14 +135,22 @@ public class ExtensionsHandle {
                     new File(FileUtil.MAIN_DIRECTORY_FILE, "friendCollectStats.json"));
 
             // 3. 构建展示列表并排序:周收↑→总收↑→开始统计时间↑
+            //    遍历 friendsStats 中所有非排除好友(不仅是本次抓取成功的),
+            //    本次未抓取的好友沿用上次数据(含历史周累计的月/年收)
             List<JSONObject> friendList = new ArrayList<>();
             long weekSum = 0, totalSum = 0, monthSum = 0, yearSum = 0;
-            for (Map.Entry<String, Long> entry : weekCollectMap.entrySet()) {
-                JSONObject f = friendsStats.optJSONObject(entry.getKey());
+            Iterator<String> statsKeys = friendsStats.keys();
+            while (statsKeys.hasNext()) {
+                String userId = statsKeys.next();
+                // 名字命中排除关键词的好友:不计入明细与汇总
+                if (isNameExcluded(getDisplayName(userId), excludeKeywords)) {
+                    continue;
+                }
+                JSONObject f = friendsStats.optJSONObject(userId);
                 if (f == null) continue;
                 JSONObject info = new JSONObject();
-                info.put("userId", entry.getKey());
-                info.put("name", getDisplayName(entry.getKey()));
+                info.put("userId", userId);
+                info.put("name", getDisplayName(userId));
                 long weekEnergy = f.optLong("weekEnergy", 0);
                 long totalEnergy = f.optLong("totalEnergy", 0);
                 info.put("weekEnergy", weekEnergy);
@@ -185,6 +193,9 @@ public class ExtensionsHandle {
 
             FileUtil.write2File(result.toString(),
                     new File(FileUtil.MAIN_DIRECTORY_FILE, "friendRanking.json"));
+            Log.record("好友收取明细:同步完成 " + sortedArray.length() + "人"
+                    + " 本周" + weekSum + "g 本月" + monthSum + "g 本年" + yearSum + "g"
+                    + " 累计" + totalSum + "g");
             Toast.show("好友数据已刷新: 共" + sortedArray.length() + "人, 本周收取" + weekSum + "g");
         } catch (Throwable t) {
             Log.i(TAG, "queryFriendRanking err:");
@@ -237,9 +248,11 @@ public class ExtensionsHandle {
 
     /**
      * 将单个好友本周收取数据合并进累计统计。
-     * 每人维护本年各周收取值(weeks:weekKey→收取克数),本周/本月/本年均由周历史推导:
-     * 首次使用时只有本周数据,三者相等;过了本周本月累加新周,过了本月本年累加新月份。
-     * 总收仍为增量累加(可保留安装前的历史)。firstSeen 记录首次统计时间。
+     * 总收/月收/年收均独立增量累加,周翻转时按月份/年份变化清零:
+     * - totalEnergy:历史累计,只加新增部分
+     * - monthEnergy:本月累计,周标识月份变化时清零
+     * - yearEnergy:本年累计,周标识年份变化时清零
+     * 不依赖 weeks 历史推导,避免迁移时数据丢失导致月/年永久归零。
      */
     private static void mergeFriendWeekEnergy(JSONObject friendsStats, String userId, long weekCollected) {
         try {
@@ -250,48 +263,38 @@ public class ExtensionsHandle {
             if (f == null) {
                 f = new JSONObject();
                 f.put("totalEnergy", 0);
+                f.put("monthEnergy", 0);
+                f.put("yearEnergy", 0);
                 f.put("firstSeen", System.currentTimeMillis());
             }
-            JSONObject weeks = f.optJSONObject("weeks");
-            if (weeks == null) {
-                // 兼容旧数据:用原 weekEnergy 建立本周历史。
-                // 旧 weekKey 与当前不一致(跨周升级)时旧周收作废归零,避免算错总收增量
-                weeks = new JSONObject();
-                if (!currentWeekKey.equals(f.optString("weekKey"))) {
-                    f.put("weekEnergy", 0);
-                }
-                weeks.put(currentWeekKey, f.optLong("weekEnergy", 0));
+            String storedWeekKey = f.optString("weekKey", "");
+            long prevWeek = f.optLong("weekEnergy", 0);
+            // 周翻转:存储的 weekKey 与当前不同 → 新的一周
+            boolean weekFlipped = !storedWeekKey.isEmpty() && !storedWeekKey.equals(currentWeekKey);
+            // 月翻转:存储的周标识月份与当前不同 → 新的一月
+            String storedMonth = storedWeekKey.length() >= 7 ? storedWeekKey.substring(0, 7) : "";
+            boolean monthFlipped = weekFlipped && !storedMonth.equals(currentMonthKey);
+            // 年翻转:存储的周标识年份与当前不同 → 新的一年
+            String storedYear = storedWeekKey.length() >= 4 ? storedWeekKey.substring(0, 4) : "";
+            boolean yearFlipped = weekFlipped && !storedYear.equals(currentYearKey);
+
+            // 新增部分 = 本周值 - 上次同步的本周值(同周);周翻转时上次本周值=0
+            long newPortion = weekFlipped ? Math.max(weekCollected, 0)
+                    : Math.max(0, weekCollected - prevWeek);
+            // 周翻转时,月/年按翻转情况清零(本月/本年从上周结束点重新开始)
+            if (monthFlipped) {
+                f.put("monthEnergy", 0);
             }
-            // 只保留本年的周历史(本年统计只需当年各周)
-            Iterator<String> it = weeks.keys();
-            while (it.hasNext()) {
-                if (!it.next().startsWith(currentYearKey)) {
-                    it.remove();
-                }
+            if (yearFlipped) {
+                f.put("yearEnergy", 0);
             }
-            // 总收增量累加:本周已同步值 → 新增部分
-            long prevWeek = weeks.optLong(currentWeekKey, 0);
-            long newPortion = Math.max(0, weekCollected - prevWeek);
+            // 三项独立累加新增部分
             f.put("totalEnergy", f.optLong("totalEnergy", 0) + newPortion);
-            // 更新本周历史并推导 本周/本月/本年
-            weeks.put(currentWeekKey, Math.max(weekCollected, 0));
-            f.put("weeks", weeks);
+            f.put("monthEnergy", f.optLong("monthEnergy", 0) + newPortion);
+            f.put("yearEnergy", f.optLong("yearEnergy", 0) + newPortion);
+            // 更新本周标识与值
             f.put("weekKey", currentWeekKey);
-            f.put("weekEnergy", weeks.optLong(currentWeekKey, 0));
-            long monthEnergy = 0, yearEnergy = 0;
-            Iterator<String> it2 = weeks.keys();
-            while (it2.hasNext()) {
-                String k = it2.next();
-                long v = weeks.optLong(k, 0);
-                if (k.startsWith(currentMonthKey)) {
-                    monthEnergy += v;
-                }
-                if (k.startsWith(currentYearKey)) {
-                    yearEnergy += v;
-                }
-            }
-            f.put("monthEnergy", monthEnergy);
-            f.put("yearEnergy", yearEnergy);
+            f.put("weekEnergy", Math.max(weekCollected, 0));
             friendsStats.put(userId, f);
         } catch (Throwable t) {
             Log.i(TAG, "mergeFriendWeekEnergy err:");
