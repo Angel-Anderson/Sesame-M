@@ -250,10 +250,8 @@ private fun loadRankingData(): RankingData? {
         val friends = mutableListOf<FriendRankInfo>()
         val arr = jo.optJSONArray("friends")
         if (arr != null) {
-            val dateFormat = SimpleDateFormat("yyyy年MM月dd日", Locale.getDefault())
             for (i in 0 until arr.length()) {
                 val f = arr.getJSONObject(i)
-                val firstSeen = f.optLong("firstSeen", 0)
                 friends.add(
                     FriendRankInfo(
                         userId = f.optString("userId", i.toString()),
@@ -262,9 +260,10 @@ private fun loadRankingData(): RankingData? {
                         totalEnergy = f.optLong("totalEnergy", 0),
                         monthEnergy = f.optLong("monthEnergy", 0),
                         yearEnergy = f.optLong("yearEnergy", 0),
-                        firstSeenText = if (firstSeen > 0) {
-                            "（开始统计时间:" + dateFormat.format(Date(firstSeen)) + "）"
-                        } else ""
+                        // startTime 已由模块端格式化为 yyyy年MM月dd日HH:mm:ss.SSS 字符串
+                        firstSeenText = f.optString("startTime", "").let {
+                            if (it.isNotEmpty()) "（开始统计时间:$it）" else ""
+                        }
                     )
                 )
             }

@@ -176,14 +176,30 @@ public class ExtensionsHandle {
                     return Long.compare(fa, fb);
                 }
             });
+            // 全局开始统计时间:所有好友中最早的 firstSeen(即首次开始统计的时间)
+            long startTime = now;
+            for (int i = 0; i < friendList.size(); i++) {
+                long fs = friendList.get(i).optLong("firstSeen", 0);
+                if (fs > 0 && fs < startTime) {
+                    startTime = fs;
+                }
+            }
+
+            // 每位好友的 firstSeen 时间戳转为格式化 startTime 字符串(排序仍用 long)
+            SimpleDateFormat startTimeFormat =
+                    new SimpleDateFormat("yyyy年MM月dd日HH:mm:ss.SSS", Locale.getDefault());
             JSONArray sortedArray = new JSONArray();
             for (JSONObject f : friendList) {
+                long fs = f.optLong("firstSeen", 0);
+                f.remove("firstSeen");
+                f.put("startTime", fs > 0 ? startTimeFormat.format(fs) : "");
                 sortedArray.put(f);
             }
 
             // 4. 写入展示文件
             JSONObject result = new JSONObject();
             result.put("total", sortedArray.length());
+            result.put("startTime", startTime);
             result.put("weekSum", weekSum);
             result.put("monthSum", monthSum);
             result.put("yearSum", yearSum);

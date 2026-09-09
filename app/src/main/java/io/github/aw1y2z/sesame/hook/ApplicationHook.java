@@ -237,15 +237,15 @@ public class ApplicationHook {
                             return;
                         }
                         if (!init) {
-                            if (initHandler(true)) {
-                                init = true;
-                            }
+                            // 初始化耗时较长,改为后台执行,避免阻塞UI线程导致黑屏
+                            asyncInitHandler();
                             return;
                         }
                         String currentUid = UserIdMap.getCurrentUid();
                         if (!targetUid.equals(currentUid)) {
                             if (currentUid != null) {
-                                initHandler(true);
+                                // 切号后重新初始化,同样放后台执行,避免阻塞UI线程导致黑屏
+                                asyncInitHandler();
                                 Log.record("用户已切换");
                                 Toast.show("用户已切换");
                                 return;
@@ -527,6 +527,30 @@ public class ApplicationHook {
             Log.i(TAG, "unsetWakenAtTimeAlarm err:");
             Log.printStackTrace(TAG, e);
         }
+    }
+
+    /**
+     * 后台执行模块初始化/切号重新初始化,避免阻塞UI线程导致黑屏。
+     * 任务内部重新校验状态:onResume 连续重复触发时不会重复初始化。
+     */
+    private static void asyncInitHandler() {
+        new Thread(() -> {
+            try {
+                if (!init) {
+                    if (initHandler(true)) {
+                        init = true;
+                    }
+                    return;
+                }
+                String targetUid = getUserId();
+                if (targetUid != null && !targetUid.equals(UserIdMap.getCurrentUid())) {
+                    initHandler(true);
+                }
+            } catch (Throwable th) {
+                Log.i(TAG, "asyncInitHandler err:");
+                Log.printStackTrace(TAG, th);
+            }
+        }, "Sesame-Init").start();
     }
 
     @SuppressLint("WakelockTimeout")
