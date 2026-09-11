@@ -260,10 +260,9 @@ private fun loadRankingData(): RankingData? {
                         totalEnergy = f.optLong("totalEnergy", 0),
                         monthEnergy = f.optLong("monthEnergy", 0),
                         yearEnergy = f.optLong("yearEnergy", 0),
-                        // startTime 已由模块端格式化为 yyyy年MM月dd日HH:mm:ss.SSS 字符串
-                        firstSeenText = f.optString("startTime", "").let {
-                            if (it.isNotEmpty()) "（开始统计时间:$it）" else ""
-                        }
+                        // startTime 已由模块端格式化为 yyyy年MM月dd日HH:mm:ss.SSS 字符串,UI 仅展示年月日
+                        firstSeenText = f.optString("startTime", "").takeIf { it.isNotEmpty() }
+                            ?.let { "（开始统计时间:${it.take(11)}）" } ?: ""
                     )
                 )
             }

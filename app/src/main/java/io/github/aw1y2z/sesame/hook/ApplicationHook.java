@@ -529,26 +529,40 @@ public class ApplicationHook {
         }
     }
 
+    private static final AtomicInteger pendingInitCount = new AtomicInteger(0);
+
     /**
      * 后台执行模块初始化/切号重新初始化,避免阻塞UI线程导致黑屏。
-     * 任务内部重新校验状态:onResume 连续重复触发时不会重复初始化。
+     * 并发触发合并为一次执行,结束后若期间又有新触发,以最新用户ID补跑一次。
      */
     private static void asyncInitHandler() {
+        if (pendingInitCount.getAndIncrement() > 0) {
+            // 已有待执行/执行中的初始化,其完成后会以最新用户ID补跑
+            return;
+        }
         new Thread(() -> {
             try {
-                if (!init) {
-                    if (initHandler(true)) {
-                        init = true;
+                do {
+                    pendingInitCount.set(0);
+                    if (!init) {
+                        if (initHandler(true)) {
+                            init = true;
+                        }
+                    } else {
+                        String targetUid = getUserId();
+                        if (targetUid != null && !targetUid.equals(UserIdMap.getCurrentUid())) {
+                            if (initHandler(true)) {
+                                // 切号成功:重置重登录退避计数并清除离线标记,使任务尽快执行
+                                reLoginCount.set(0);
+                                offline = false;
+                            }
+                        }
                     }
-                    return;
-                }
-                String targetUid = getUserId();
-                if (targetUid != null && !targetUid.equals(UserIdMap.getCurrentUid())) {
-                    initHandler(true);
-                }
+                } while (pendingInitCount.getAndSet(0) > 0);
             } catch (Throwable th) {
                 Log.i(TAG, "asyncInitHandler err:");
                 Log.printStackTrace(TAG, th);
+                pendingInitCount.set(0);
             }
         }, "Sesame-Init").start();
     }
@@ -748,8 +762,15 @@ public class ApplicationHook {
         mainTask.startTask(false);
     }
 
+    private static Runnable pendingMainTaskTrigger;
+
     private static void execDelayedHandler(long delayMillis) {
-        mainHandler.postDelayed(() -> mainTask.startTask(false), delayMillis);
+        // 移除上一个挂起的触发器,避免切号重初始化期间旧周期的定时回调照常触发
+        if (pendingMainTaskTrigger != null) {
+            mainHandler.removeCallbacks(pendingMainTaskTrigger);
+        }
+        pendingMainTaskTrigger = () -> mainTask.startTask(false);
+        mainHandler.postDelayed(pendingMainTaskTrigger, delayMillis);
         try {
             NotificationUtil.updateNextExecText(System.currentTimeMillis() + delayMillis);
         } catch (Exception e) {
@@ -963,7 +984,8 @@ public class ApplicationHook {
             if (reLoginCount.get() < 5) {
                 execDelayedHandler(reLoginCount.getAndIncrement() * 5000L);
             } else {
-                execDelayedHandler(Math.max(BaseModel.getCheckInterval().getValue(), 180_000));
+                // 退避封顶3~5分钟,避免按checkInterval(可达30分钟)长时间休眠
+                execDelayedHandler(Math.max(180_000, Math.min(BaseModel.getCheckInterval().getValue(), 300_000)));
             }
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setClassName(ClassUtil.PACKAGE_NAME, ClassUtil.CURRENT_USING_ACTIVITY);
