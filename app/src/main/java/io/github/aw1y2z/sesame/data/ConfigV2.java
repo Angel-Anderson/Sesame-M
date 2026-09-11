@@ -142,18 +142,17 @@ public class ConfigV2 {
         String json = INSTANCE.toSaveStr();
         boolean success;
         if (StringUtil.isEmpty(userId)) {
-            userId = "默认";
             success = FileUtil.setDefaultConfigV2File(json);
         } else {
             success = FileUtil.setConfigV2File(userId, json);
         }
-        
-        // ========== 新增：保存成功后触发滚动备份 ==========
+
+        // 保存成功后触发滚动备份（保留原始userId，确保与load恢复时的备份查找名称一致）
         if (success) {
             FileUtil.backupConfigV2WithRolling(userId);
         }
-        
-        Log.record("保存配置: " + userId);
+
+        Log.record("保存配置: " + (StringUtil.isEmpty(userId) ? "默认" : userId));
         return success;
     }
     
@@ -202,17 +201,56 @@ public class ConfigV2 {
             }
         } catch (Throwable t) {
             Log.printStackTrace(TAG, t);
-            Log.i(TAG, "重置配置: " + userName);
-            Log.system(TAG, "重置配置: " + userName);
+            Log.i(TAG, "配置加载失败，尝试从备份恢复: " + userName);
+            Log.system(TAG, "配置加载失败，尝试从备份恢复: " + userName);
+            // 先重置，清除可能的部分加载状态
             INSTANCE.setModelFieldsMap(null);
             unload();
-            if (configV2File != null) {
-                FileUtil.write2File(INSTANCE.toSaveStr(), configV2File);
+            if (!restoreFromBackup(configV2File, userId, userName)) {
+                Log.i(TAG, "重置配置: " + userName);
+                Log.system(TAG, "重置配置: " + userName);
+                INSTANCE.setModelFieldsMap(null);
+                unload();
+                if (configV2File != null) {
+                    FileUtil.write2File(INSTANCE.toSaveStr(), configV2File);
+                }
             }
         }
         INSTANCE.setInit(true);
         Log.i(TAG, "加载配置结束");
         return INSTANCE;
+    }
+
+    /**
+     * 方案B：配置加载失败时，尝试从 bak 目录最新备份恢复，避免直接重置为默认配置
+     *
+     * @return 恢复成功返回 true
+     */
+    private static boolean restoreFromBackup(File configFile, String userId, String userName) {
+        try {
+            // 保留损坏文件，便于排查
+            if (configFile != null && configFile.exists() && configFile.length() > 0) {
+                File corruptFile = new File(configFile.getParentFile(), configFile.getName() + ".corrupt");
+                FileUtil.copyTo(configFile, corruptFile);
+            }
+            File latestBackup = FileUtil.findLatestBackupFile(userId);
+            if (latestBackup == null || !latestBackup.exists()) {
+                Log.i(TAG, "无可用备份: " + userName);
+                return false;
+            }
+            String json = FileUtil.readFromFile(latestBackup);
+            JsonUtil.copyMapper().readerForUpdating(INSTANCE).readValue(json);
+            Log.i(TAG, "从备份恢复配置: " + userName + " <- " + latestBackup.getName());
+            Log.system(TAG, "从备份恢复配置: " + userName + " <- " + latestBackup.getName());
+            if (configFile != null) {
+                FileUtil.write2File(json, configFile);
+            }
+            return true;
+        } catch (Throwable t) {
+            Log.printStackTrace(TAG, t);
+            Log.i(TAG, "备份恢复失败: " + userName);
+            return false;
+        }
     }
 
     public static synchronized void unload() {
