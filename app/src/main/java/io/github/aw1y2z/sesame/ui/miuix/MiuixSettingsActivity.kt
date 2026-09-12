@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -276,23 +277,64 @@ fun FieldItem(field: ModelField<*>, onSave: () -> Unit) {
 
         "INTEGER", "MULTIPLY_INTEGER" -> {
             val imf = field as? IntegerModelField
-            val rawMin = (imf?.minLimit ?: 0).toFloat()
-            val rawMax = (imf?.maxLimit ?: 100).toFloat()
-            val min = minOf(rawMin, rawMax)
-            val max = if (maxOf(rawMin, rawMax) <= min) min + 1f else maxOf(rawMin, rawMax)
-            var value by remember { mutableFloatStateOf((field.value as? Int ?: 0).toFloat().coerceIn(min, max)) }
-            SliderPreference(
-                title = field.name ?: "",
-                summary = field.description,
-                value = value.coerceIn(min, max),
-                valueRange = min..max,
-                valueText = value.roundToInt().toString(),
-                onValueChange = { value = it.coerceIn(min, max) },
-                onValueChangeFinished = {
-                    field.setObjectValue(value.roundToInt())
-                    onSave()
+            val maxLimit = imf?.maxLimit
+            val lowerLimit = imf?.minLimit
+            // 未指定上限，或范围过大（滑块无法精确取值）时，使用文本输入
+            val rangeSpan = if (maxLimit != null) {
+                maxLimit.toLong() - (lowerLimit ?: 0).toLong()
+            } else {
+                Long.MAX_VALUE
+            }
+            if (rangeSpan > 200L) {
+                val context = LocalContext.current
+                val current = field.value as? Int ?: 0
+                var showDialog by remember { mutableStateOf(false) }
+                ArrowPreference(
+                    title = field.name ?: "",
+                    summary = if (lowerLimit != null && lowerLimit < 0) {
+                        "$current（-1 表示按最大额度）"
+                    } else {
+                        current.toString()
+                    },
+                    onClick = { showDialog = true }
+                )
+                if (showDialog) {
+                    EditDialog(
+                        title = field.name ?: "",
+                        initial = current.toString(),
+                        multiline = false,
+                        onConfirm = { text ->
+                            val parsed = text.trim().toIntOrNull()
+                            if (parsed == null || (lowerLimit != null && parsed < lowerLimit)) {
+                                ToastUtil.show(context, "请输入不小于 ${lowerLimit ?: Int.MIN_VALUE} 的整数")
+                            } else {
+                                field.setObjectValue(parsed)
+                                onSave()
+                            }
+                            showDialog = false
+                        },
+                        onDismiss = { showDialog = false }
+                    )
                 }
-            )
+            } else {
+                val rawMin = (lowerLimit ?: 0).toFloat()
+                val rawMax = maxLimit!!.toFloat()
+                val min = minOf(rawMin, rawMax)
+                val max = if (maxOf(rawMin, rawMax) <= min) min + 1f else maxOf(rawMin, rawMax)
+                var value by remember { mutableFloatStateOf((field.value as? Int ?: 0).toFloat().coerceIn(min, max)) }
+                SliderPreference(
+                    title = field.name ?: "",
+                    summary = field.description,
+                    value = value.coerceIn(min, max),
+                    valueRange = min..max,
+                    valueText = value.roundToInt().toString(),
+                    onValueChange = { value = it.coerceIn(min, max) },
+                    onValueChangeFinished = {
+                        field.setObjectValue(value.roundToInt())
+                        onSave()
+                    }
+                )
+            }
         }
 
         "STRING", "TEXT" -> {
@@ -383,6 +425,7 @@ fun FieldItem(field: ModelField<*>, onSave: () -> Unit) {
             val options = smf?.expandValue ?: emptyList()
             val kv = field.value as? KVNode<*, *>
             val current = kv?.key?.toString()
+            val currentCount = (kv?.value as? Number)?.toInt() ?: 1
             var showDialog by remember { mutableStateOf(false) }
             ArrowPreference(
                 title = field.name ?: "",
@@ -396,6 +439,7 @@ fun FieldItem(field: ModelField<*>, onSave: () -> Unit) {
                     withCount = true,
                     options = options,
                     selectedIds = if (current != null) setOf(current) else emptySet(),
+                    initialCounts = if (current != null) mapOf(current to currentCount) else emptyMap(),
                     onConfirm = { ids, counts ->
                         smf?.clear()
                         ids.firstOrNull()?.let { smf?.add(it, counts[it] ?: 1) }
@@ -412,6 +456,9 @@ fun FieldItem(field: ModelField<*>, onSave: () -> Unit) {
             val options = smf?.expandValue ?: emptyList()
             val currentMap = field.value as? Map<*, *>
             val current = currentMap?.keys?.mapNotNull { it?.toString() }?.toSet() ?: emptySet()
+            val initialCounts = currentMap?.entries?.associate { (k, v) ->
+                k.toString() to ((v as? Number)?.toInt() ?: 1)
+            } ?: emptyMap()
             var showDialog by remember { mutableStateOf(false) }
             ArrowPreference(
                 title = field.name ?: "",
@@ -425,6 +472,7 @@ fun FieldItem(field: ModelField<*>, onSave: () -> Unit) {
                     withCount = true,
                     options = options,
                     selectedIds = current,
+                    initialCounts = initialCounts,
                     onConfirm = { ids, counts ->
                         smf?.clear()
                         ids.forEach { smf?.add(it, counts[it] ?: 1) }
@@ -524,7 +572,7 @@ fun EditDialog(
                 TextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = title,
+                    label = "",
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
@@ -545,11 +593,12 @@ fun SelectionDialog(
     withCount: Boolean,
     options: List<IdAndName>,
     selectedIds: Set<String>,
+    initialCounts: Map<String, Int> = emptyMap(),
     onConfirm: (Set<String>, Map<String, Int>) -> Unit,
     onDismiss: () -> Unit
 ) {
     var sel by remember { mutableStateOf(selectedIds) }
-    var counts by remember { mutableStateOf(selectedIds.associateWith { 1 }) }
+    var counts by remember { mutableStateOf(selectedIds.associateWith { initialCounts[it] ?: 1 }) }
     Dialog(onDismissRequest = onDismiss) {
         Box(
             Modifier
@@ -557,10 +606,15 @@ fun SelectionDialog(
                 .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(16.dp))
                 .padding(16.dp)
         ) {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(title, color = MiuixTheme.colorScheme.onBackground)
-                Spacer(Modifier.height(8.dp))
-                options.forEach { opt ->
+            LazyColumn(
+                Modifier.padding(bottom = 48.dp)
+            ) {
+                item(key = "title") {
+                    Text(title, color = MiuixTheme.colorScheme.onBackground)
+                    Spacer(Modifier.height(8.dp))
+                }
+                items(options.size, key = { "opt_$it" }) { index ->
+                    val opt = options[index]
                     if (single) {
                         RadioButtonPreference(
                             title = opt.name,
@@ -569,6 +623,8 @@ fun SelectionDialog(
                         )
                     } else {
                         val checked = sel.contains(opt.id)
+                        var showCountDialog by remember(opt.id) { mutableStateOf(false) }
+                        val currentCount = counts[opt.id] ?: 1
                         CheckboxPreference(
                             title = opt.name,
                             checked = checked,
@@ -577,24 +633,49 @@ fun SelectionDialog(
                             }
                         )
                         if (withCount && checked) {
-                            var c by remember(opt.id) { mutableFloatStateOf((counts[opt.id] ?: 1).toFloat()) }
-                            SliderPreference(
-                                title = "数量",
-                                value = c,
-                                valueRange = 0f..100f,
-                                valueText = c.roundToInt().toString(),
-                                onValueChange = { c = it },
-                                onValueChangeFinished = { counts = counts + (opt.id to c.roundToInt()) }
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showCountDialog = true }
+                                    .padding(start = 48.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "数量: ",
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                                Text(
+                                    text = currentCount.toString(),
+                                    color = MiuixTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        if (showCountDialog) {
+                            EditDialog(
+                                title = opt.name,
+                                initial = currentCount.toString(),
+                                multiline = false,
+                                onConfirm = { text ->
+                                    val parsed = text.trim().toIntOrNull()
+                                    if (parsed != null && parsed > 0) {
+                                        counts = counts + (opt.id to parsed)
+                                    }
+                                    showCountDialog = false
+                                },
+                                onDismiss = { showCountDialog = false }
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(text = "取消", onClick = onDismiss)
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(text = "保存", onClick = { onConfirm(sel, counts) })
-                }
+            }
+            Row(
+                Modifier
+                    .align(Alignment.BottomEnd),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(text = "取消", onClick = onDismiss)
+                Spacer(Modifier.width(8.dp))
+                TextButton(text = "保存", onClick = { onConfirm(sel, counts) })
             }
         }
     }

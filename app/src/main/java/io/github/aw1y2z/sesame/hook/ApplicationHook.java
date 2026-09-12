@@ -36,6 +36,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.lang.ref.WeakReference;
 
 import io.github.aw1y2z.sesame.util.compat.XC_MethodReplacement;
 import io.github.aw1y2z.sesame.BuildConfig;
@@ -125,6 +126,16 @@ public class ApplicationHook {
     @Getter
     private static Handler mainHandler;
 
+    /** 当前前台 Activity 弱引用，供自定义 Toast 等需要 Activity 窗口的场景使用 */
+    private static volatile WeakReference<Activity> currentActivityRef = new WeakReference<>(null);
+
+    /**
+     * 获取当前前台 Activity（可能为 null，例如应用在后台时）
+     */
+    public static Activity getCurrentActivity() {
+        return currentActivityRef.get();
+    }
+
     private static BaseTask mainTask;
 
     private static RpcBridge rpcBridge;
@@ -197,6 +208,24 @@ public class ApplicationHook {
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     context = (Context) param.args[0];
                     alipayVersion = new AlipayVersion(context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName);
+                    // 注册 Activity 生命周期回调，跟踪当前前台 Activity（供自定义 Toast 等使用）
+                    try {
+                        Application app = (Application) context.getApplicationContext();
+                        app.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
+                            @Override public void onActivityCreated(Activity a, android.os.Bundle b) {}
+                            @Override public void onActivityStarted(Activity a) {}
+                            @Override public void onActivityResumed(Activity a) { currentActivityRef = new WeakReference<>(a); }
+                            @Override public void onActivityPaused(Activity a) {}
+                            @Override public void onActivityStopped(Activity a) {}
+                            @Override public void onActivitySaveInstanceState(Activity a, android.os.Bundle b) {}
+                            @Override public void onActivityDestroyed(Activity a) {
+                                Activity cur = currentActivityRef.get();
+                                if (cur == a) { currentActivityRef = new WeakReference<>(null); }
+                            }
+                        });
+                    } catch (Throwable t) {
+                        Log.printStackTrace(TAG, t);
+                    }
                     try {
                         AlipayMiniMarkHelper.init(classLoader);
                         AuthCodeHelper.init(classLoader);

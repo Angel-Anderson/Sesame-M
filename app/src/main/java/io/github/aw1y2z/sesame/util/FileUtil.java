@@ -12,7 +12,6 @@ import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class FileUtil {
     private static final String TAG = FileUtil.class.getSimpleName();
@@ -605,7 +604,15 @@ public class FileUtil {
         }
         return file;
     }
-    
+
+    public static File getGoldenBeansTaskListMapFile() {
+        File file = new File(MAIN_DIRECTORY_FILE, "GoldenBeansTask.json");
+        if (file.exists() && file.isDirectory()) {
+            file.delete();
+        }
+        return file;
+    }
+
     public static File getWalkPathIdMapFile() {
         File file = new File(MAIN_DIRECTORY_FILE, "walkPath.json");
         if (file.exists() && file.isDirectory()) {
@@ -787,7 +794,22 @@ public class FileUtil {
         }
         return errorLogFile;
     }
-    
+
+    public static File getGoldenBeansLogFile() {
+        File goldenBeansLogFile = new File(LOG_DIRECTORY_FILE, Log.getLogFileName("goldenBeans"));
+        if (goldenBeansLogFile.exists() && goldenBeansLogFile.isDirectory()) {
+            goldenBeansLogFile.delete();
+        }
+        if (!goldenBeansLogFile.exists()) {
+            try {
+                goldenBeansLogFile.createNewFile();
+            }
+            catch (Throwable ignored) {
+            }
+        }
+        return goldenBeansLogFile;
+    }
+
     public static void clearLog() {
         File[] files = LOG_DIRECTORY_FILE.listFiles();
         if (files == null) {
@@ -855,73 +877,6 @@ public class FileUtil {
         else {
             f.getParentFile().mkdirs();
         }
-        // 方案C：原子写入（先写临时文件再重命名），避免进程被杀导致文件损坏
-        // 按目标文件路径加锁，串行化同一文件的并发写入
-        synchronized (lockFor(f.getAbsolutePath())) {
-            return write2FileAtomic(s, f);
-        }
-    }
-
-    private static final ConcurrentHashMap<String, Object> WRITE_LOCKS = new ConcurrentHashMap<>();
-
-    private static Object lockFor(String path) {
-        Object lock = WRITE_LOCKS.get(path);
-        if (lock == null) {
-            WRITE_LOCKS.putIfAbsent(path, new Object());
-            lock = WRITE_LOCKS.get(path);
-        }
-        return lock;
-    }
-
-    private static boolean write2FileAtomic(String s, File f) {
-        File tempFile = new File(f.getParentFile(), f.getName() + ".tmp");
-        FileOutputStream fos = null;
-        Writer writer = null;
-        try {
-            if (tempFile.exists()) {
-                tempFile.delete();
-            }
-            fos = new FileOutputStream(tempFile);
-            writer = new OutputStreamWriter(fos);
-            writer.write(s);
-            writer.flush();
-            try {
-                fos.getChannel().force(true);
-            }
-            catch (Throwable ignored) {
-            }
-            close(writer);
-            close(fos);
-            writer = null;
-            fos = null;
-            if (tempFile.renameTo(f)) {
-                return true;
-            }
-            // 部分文件系统在目标已存在时 rename 会失败，删除目标后重试
-            if (f.exists()) {
-                f.delete();
-            }
-            if (tempFile.renameTo(f)) {
-                return true;
-            }
-            Log.error("write2File 原子重命名失败: " + f.getAbsolutePath());
-            return write2FileDirect(s, f);
-        }
-        catch (Throwable t) {
-            Log.printStackTrace(TAG, t);
-            if (writer != null) {
-                close(writer);
-            }
-            if (fos != null) {
-                close(fos);
-            }
-            tempFile.delete();
-            // 兜底：退回直接写入，避免数据完全丢失
-            return write2FileDirect(s, f);
-        }
-    }
-
-    private static boolean write2FileDirect(String s, File f) {
         boolean success = false;
         FileWriter fw = null;
         try {
@@ -933,7 +888,33 @@ public class FileUtil {
         catch (Throwable t) {
             Log.printStackTrace(TAG, t);
         }
-        close(fw);
+        if (fw != null) {
+            try {
+                fw.close();
+            }
+            catch (Throwable t) {
+                File parent = f.getParentFile();
+                Log.debug("write2File close failed, try recreate: " + f.getAbsolutePath()
+                        + " exists=" + f.exists()
+                        + " canWrite=" + f.canWrite()
+                        + " len=" + f.length()
+                        + " parentCanWrite=" + (parent != null && parent.canWrite()));
+                try {
+                    if (f.exists()) {
+                        f.delete();
+                    }
+                    FileWriter fw2 = new FileWriter(f);
+                    fw2.write(s);
+                    fw2.flush();
+                    fw2.close();
+                    success = true;
+                    Log.debug("write2File recreate ok: " + f.getName());
+                }
+                catch (Throwable t2) {
+                    Log.printStackTrace(TAG, t2);
+                }
+            }
+        }
         return success;
     }
     

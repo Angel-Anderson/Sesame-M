@@ -1,17 +1,56 @@
 # Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in C:\tools\adt-bundle-windows-x86_64-20131030\sdk/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
 
-# Add any project specific keep options here:
+# ========================
+# Xposed 框架入口类
+# ========================
+# LSPosed 入口，注册在 META-INF/xposed/java_init.list
+-keep class io.github.aw1y2z.sesame.hook.LibXposedEntry { *; }
+# LSPatch/NPatch 入口，注册在 assets/xposed_init
+-keep class io.github.aw1y2z.sesame.hook.LegacyXposedEntry { *; }
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ========================
+# 被反射加载的类（Class.forName）
+# ========================
+-keep class io.github.aw1y2z.sesame.model.extensions.ExtensionsHandle { *; }
+-keep class io.github.aw1y2z.sesame.model.extensions.ExtensionsHandleAlpha { *; }
+-keep class io.github.aw1y2z.sesame.model.task.antOrchard.AntOrchard { *; }
+
+# ========================
+# Jackson 序列化/反序列化
+# 保留字段名，防止 JSON 解析失败
+# ========================
+-keepclassmembers class io.github.aw1y2z.sesame.entity.** { <fields>; }
+-keepclassmembers class io.github.aw1y2z.sesame.model.** { <fields>; }
+-keepclassmembers class io.github.aw1y2z.sesame.data.** { <fields>; }
+-keepclassmembers class io.github.aw1y2z.sesame.util.Status { <fields>; }
+
+# ========================
+# Lombok @Data 生成的 getter/setter
+# Jackson 反射调用方法名，需保留
+# ========================
+-keepclassmembers class io.github.aw1y2z.sesame.entity.** {
+    public *** get*();
+    public void set*(...);
+}
+-keepclassmembers class io.github.aw1y2z.sesame.model.** {
+    public *** get*();
+    public void set*(...);
+}
+-keepclassmembers class io.github.aw1y2z.sesame.data.** {
+    public *** get*();
+    public void set*(...);
+}
+
+# ========================
+# Xposed 框架接口（防 R8 删接口）
+# ========================
+-keep class de.robv.android.xposed.** { *; }
+-keep interface org.lsposed.lucid.** { *; }
+
+# ========================
+# 通用
+# ========================
+-dontwarn javax.annotation.**
+-keepattributes Signature
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod

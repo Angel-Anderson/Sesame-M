@@ -1,10 +1,11 @@
 package io.github.aw1y2z.sesame.util;
 
 import android.content.Context;
-import android.widget.Toast;
 
-import io.github.aw1y2z.sesame.model.normal.base.BaseModel;
-
+/**
+ * Toast 工具类，统一委托给 {@link io.github.aw1y2z.sesame.hook.Toast}，
+ * 由其决定使用自定义气泡（前台，位置可控）还是系统 Toast（后台降级）。
+ */
 public class ToastUtil {
 
     public static void show(Context context, int resId) {
@@ -12,12 +13,6 @@ public class ToastUtil {
     }
 
     public static void show(Context context, CharSequence text) {
-        Toast toast = Toast.makeText(context, text, Toast.LENGTH_SHORT);
-        show(toast);
-    }
-
-    private static void show(Toast toast) {
-        toast.setGravity(toast.getGravity(), toast.getXOffset(), BaseModel.getToastOffsetY().getValue());
-        toast.show();
+        io.github.aw1y2z.sesame.hook.Toast.show(text);
     }
 }

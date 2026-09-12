@@ -59,6 +59,7 @@ import java.io.RandomAccessFile
  */
 enum class LogType(val displayName: String) {
     FOREST("森林记录"),
+    GOLDENBEANS("金豆记录"),
     FARM("庄园记录"),
     OTHER("其他记录"),
     DEBUG("抓包记录"),
@@ -69,6 +70,7 @@ enum class LogType(val displayName: String) {
     val file: File
         get() = when (this) {
             FOREST -> FileUtil.getForestLogFile()
+            GOLDENBEANS -> FileUtil.getGoldenBeansLogFile()
             FARM -> FileUtil.getFarmLogFile()
             OTHER -> FileUtil.getOtherLogFile()
             DEBUG -> FileUtil.getDebugLogFile()

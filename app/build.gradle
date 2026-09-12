@@ -5,7 +5,7 @@ android {
     def version = project.getProperties().get("version")
     if (version == null || "unspecified".equalsIgnoreCase(version)) {
         // 默认版本号；正式发布时由 CI 通过 -Pversion=<tag> 覆盖
-        version = "1.0.3"
+        version = "1.0.6"
     }
     project.ext.appVersion = version
     def gitCommitHash = "unknown"
@@ -50,6 +50,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
